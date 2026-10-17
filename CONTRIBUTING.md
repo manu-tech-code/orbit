@@ -8,8 +8,8 @@ feat/… fix/… chore/…  ──PR──▶  main  ──▶  release/<version
 
 1. **Start a branch**: `git switch main && git pull && git switch -c feat/floor-plan-walls`.
    Prefixes: `feat/`, `fix/`, `bug/`, `chore/`, `docs/`, `refactor/`, `perf/`, `test/`, `ci/`.
-2. **Open a pull request into `main`.** The *Python checks* workflow runs the four test scripts
-   in `scripts/`, which check the devices, tripwire, router alerts and floor plan without
+2. **Open a pull request into `main`.** The *Python checks* workflow runs the five test scripts
+   in `scripts/`, which check the devices, tripwire, router alerts, floor plan and other routers (MikroTik, Grandstream) without
    touching the network. Keep them passing.
 3. **Release**: bump `__version__` in `orbit/__init__.py` (the only place the version is
    written; `mac/build.sh` stamps it into the app) and take it in through a pull request.

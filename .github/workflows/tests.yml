@@ -27,5 +27,6 @@ jobs:
           python scripts/test_tripwire.py
           python scripts/test_router.py
           python scripts/test_plan.py
+          python scripts/test_routers_other.py
       - name: Everything imports
         run: python -m compileall -q orbit
