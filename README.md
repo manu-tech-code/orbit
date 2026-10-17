@@ -11,7 +11,7 @@ Orbit runs on a computer at home and you open it in a browser. It reads from you
 - A Starlink dish and the Starlink router. Tested with the Standard kit and Router Gen 3.
 - A computer on your Starlink Wi-Fi with Python 3.10 or newer. A Mac that sleeps works, but history has gaps while it's asleep. A Raspberry Pi or other always-on computer is better.
 
-If your Starlink router is in bypass mode, Orbit still sees the dish but can't see your devices.
+If your Starlink router is in bypass mode, Orbit still sees the dish. To see your devices, connect your own router: see [Your own router](#your-own-router-bypass-mode).
 
 ## Install
 
@@ -113,6 +113,51 @@ Run this again after changing the app's code. If Orbit is open, it quits and reo
 To try a change without installing it, run `mac/build.sh` on its own. It builds `mac/build/Orbit.app`.
 
 In the app's settings (⌘,) you can make it open when you log in.
+
+## Your own router (bypass mode)
+
+When the Starlink router is in bypass mode, another router runs your network and the Starlink router can't see your devices. Orbit can read the device list from that router instead. The dish is still read as usual.
+
+| Brand | What Orbit reads | What you need |
+|---|---|---|
+| **MikroTik** (RouterOS 7) | Every device (DHCP and the address table), Wi-Fi signal if the MikroTik runs the Wi-Fi, data per device from Kid Control | The REST API (IP › Services › www-ssl) and a read-only user |
+| **Grandstream** (GWN.Cloud or GWN Manager) | Wi-Fi devices with their signal, access point and data | API Developer mode: an App ID and Secret Key |
+| **SNMP**: any firewall, router or switch (Sophos, Cisco, Fortinet, HP, Ubiquiti…), and Cisco Wi-Fi controllers | Every device the firewall or router knows, on every network section; which switch port a wired device is on and its data; Wi-Fi devices' signal, access point and data from a Cisco controller (AireOS, Catalyst 9800, Embedded Wireless Controller) | SNMP v2c (a community) or v3 (user, SHA or SHA-256, AES), with this computer allowed to ask |
+
+Use both together, for example a MikroTik router with Grandstream access points: Orbit merges them by MAC address, takes each device's data from the MikroTik, and Wi-Fi signal and access point from Grandstream. A device no access point reports shows as wired.
+
+1. On the MikroTik, make a read-only user:
+   ```
+   /user group add name=orbit-ro policy=read,api,rest-api,!write,!policy
+   /user add name=orbit group=orbit-ro password=<a long password>
+   ```
+   For data per device, open **IP › Kid Control**, add a profile with no time limits, and add your devices to it. Kid Control only counts; it blocks nothing without limits.
+2. In GWN.Cloud or GWN Manager, open your account menu › **API Developer**, switch it on and copy the App ID and Secret Key.
+3. For SNMP, ask whoever runs the network for read-only SNMP access for this computer: the v3 user and its two passwords (or a v2c community), and to add this computer's address to the devices' SNMP access lists. Devices that only accept SNMP from a monitoring server stay silent otherwise.
+4. Put the settings in `data/routers.json` next to your history, and make it readable by you only (`chmod 600 data/routers.json`), because it holds passwords:
+   ```json
+   {
+     "mikrotik":    {"host": "192.168.88.1", "username": "orbit", "password": "…", "insecure_tls": true},
+     "grandstream": {"url": "https://www.gwn.cloud", "app_id": "…", "secret_key": "…", "network": "Home"},
+     "snmp": [
+       {"host": "192.168.1.1", "version": "3", "user": "monitor", "auth": "SHA256", "auth_password": "…", "priv": "AES", "priv_password": "…"},
+       {"host": "192.168.1.2", "version": "3", "user": "monitor", "auth": "SHA", "auth_password": "…", "priv": "AES", "priv_password": "…"},
+       {"host": "192.168.1.3", "version": "2c", "community": "…"}
+     ]
+   }
+   ```
+   Leave out what you don't have. List each SNMP device separately (the firewall, each switch, the Wi-Fi controller); `auth` is MD5, SHA, SHA224, SHA256, SHA384 or SHA512, `priv` is AES, AES192, AES256 or none. `insecure_tls` trusts the router's own self-made certificate; only set it for your own router. Europe GWN accounts use `https://eu.gwn.cloud`; a GWN Manager uses its own address. `network` picks one GWN network; leave it out for all.
+5. Restart Orbit (`scripts/service.sh restart`). It prints where devices come from, and the Starlink page shows each one's status under **Your router and Wi-Fi**. `--routers <file>` uses a settings file somewhere else.
+
+What changes:
+- Orbit reads the MikroTik every 5 seconds, and Grandstream and SNMP devices every 30 seconds, rather than the Starlink router every 2 seconds. Live speeds are worked out between those reads.
+- With SNMP, the firewall's address table lists devices on every network section, not only yours. A device counts as connected while a switch or the Wi-Fi controller has seen it recently; the address table alone can remember a device for hours. A wired device alone on a switch port gets that port's data counters as its usage; devices behind another switch or access point don't. Names come from your network's reverse DNS.
+- Devices are identified by their MAC address. Merged devices, owners, allowances and hiding work as before.
+- Kid Control counts since the router last started; Orbit notices a restart and carries on. Like the Starlink router, it includes traffic inside your home.
+- Speed tests, block schedules and the router's Wi-Fi security settings come from the Starlink router, so they aren't available in bypass mode.
+- The dish still has to be reachable at 192.168.100.1: on a MikroTik, add a route to it through the internet port if Orbit can't reach the dish.
+
+`scripts/test_routers_other.py` checks the MikroTik and Grandstream readers against made-up replies, and `scripts/test_snmp.py` checks the SNMP merging the same way (and reads a throwaway local agent over v2c and v3 if net-snmp's `snmpd` is installed), without touching the network.
 
 ## What it shows
 
@@ -237,6 +282,7 @@ The version is written once, in `orbit/__init__.py`. Merging into `main` runs `.
 ```
 orbit/            the server (Python, standard library plus the Starlink gRPC library)
   starlink.py     access to the dish and router (reads, plus the speed test)
+  routers.py      device lists from your own router in bypass mode (MikroTik, Grandstream, SNMP)
   collector.py    polls them, works out usage, runs speed tests, keeps the live picture
   tripwire.py     the decoy doors on this Mac that catch probes
   store.py        SQLite history
@@ -246,7 +292,8 @@ web/              the dashboard (React and htm, no build step; libraries in web/
 mac/              the native Mac app (SwiftUI and Swift Charts), built with mac/build.sh
 scripts/          the probe, install.sh (installs a release), release.sh (builds one),
                   service.sh for running Orbit in the background on a Mac,
-                  test_devices.py (device management), test_tripwire.py (the tripwire) and test_router.py (router alerts) and test_plan.py (floor plan saving), which check without touching the network
+                  test_devices.py (device management), test_tripwire.py (the tripwire), test_router.py (router alerts),
+                  test_plan.py (floor plan saving), test_routers_other.py (MikroTik and Grandstream) and test_snmp.py (SNMP), which check without touching the network
 ```
 
 ## License

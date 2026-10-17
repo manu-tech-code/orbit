@@ -4,3 +4,8 @@ grpcio==1.84.0
 grpcio-reflection==1.84.0
 protobuf==7.36.2
 yagrc==1.1.3
+# Reads firewalls, switches and Cisco Wi-Fi controllers over SNMP (orbit/routers.py), only when data/routers.json
+# lists SNMP devices. cryptography does the AES encryption of SNMP v3. Versions tested on 2026-10-17.
+pysnmp==7.1.30
+pyasn1==0.6.4
+cryptography==50.0.2

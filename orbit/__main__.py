@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import __version__, starlink
+from . import __version__, routers, starlink
 from .auth import Auth
 from .collector import Collector
 from .server import lan_address, make_server
@@ -56,6 +56,8 @@ def main():
     p.add_argument("--db", default=str(DEFAULT_DB), help="where to keep history (default data/orbit.db)")
     p.add_argument("--dish", default=starlink.DISH, help=f"dish address (default {starlink.DISH})")
     p.add_argument("--router", default=starlink.ROUTER, help=f"router address (default {starlink.ROUTER})")
+    p.add_argument("--routers", help="settings for a MikroTik router or Grandstream access points, used instead of the "
+                                     "Starlink router for the device list (default: routers.json next to the history)")
     p.add_argument("--keep-awake", action="store_true", help="on a Mac, don't sleep while plugged in")
     p.add_argument("--wait", action="store_true", help="if another copy is running, wait for it instead of quitting")
     args = p.parse_args()
@@ -69,7 +71,15 @@ def main():
     if args.new_code:
         auth.reset_code()
         print("Made a new access code. Every other device has to sign in again.")
-    collector = Collector(store, args.dish, args.router)
+    routers_path = args.routers or str(Path(args.db).parent / "routers.json")
+    try:
+        sources = routers.load_config(routers_path)
+    except (ValueError, KeyError) as e:
+        print(f"Couldn't read {routers_path}: {e}")
+        sys.exit(1)
+    if sources:
+        print("Devices come from: " + ", ".join(f"{s.kind} at {s.host}" for s in sources.sources))
+    collector = Collector(store, args.dish, args.router, sources)
     httpd = make_server(collector, auth, args.port, args.lan)
     collector.start()
 

@@ -223,7 +223,23 @@ function DishCard({ s }) {
   </section>`;
 }
 
+const SOURCE_NAME = { mikrotik: 'MikroTik router', grandstream: 'Grandstream Wi-Fi', snmp: 'SNMP' };
+
+/* Your own router or Wi-Fi controller, when the Starlink router is in bypass mode (orbit/routers.py). */
+function SourcesCard({ s }) {
+  return html`<section className="card">
+    <div className="card-head"><div><h2 className="card-title">Your router and Wi-Fi</h2><div className="card-sub">The device list comes from here, not the Starlink router</div></div></div>
+    <div className="kv">
+      ${s.sources.map(x => html`<${Fragment} key=${x.kind + x.host}><div>${x.kind === 'snmp' ? x.host : SOURCE_NAME[x.kind] || x.kind}</div>
+        <div>${x.ok === false ? html`<span className="chip chip-crit">Not answering</span>` : x.ok ? html`<span className="chip chip-good"><span className="dot" />Online</span>` : 'Connecting…'}
+          <div className="muted" style=${{ fontSize: '13px' }}>${x.ok === false ? x.error : [x.model, x.host, x.ok ? plural(x.clients, 'device') : null, x.updated ? 'read ' + fmtAgo(x.updated, s.now) : null].filter(Boolean).join(' · ')}</div>
+          ${x.kind === 'mikrotik' && x.ok && x.counts_usage === false ? html`<div className="muted" style=${{ fontSize: '13px' }}>Data per device needs Kid Control on the router (IP › Kid Control).</div>` : null}</div><//>`)}
+    </div>
+  </section>`;
+}
+
 function RouterCard({ s }) {
+  if (s.sources) return html`<${SourcesCard} s=${s} />`;
   const r = s.router;
   const all = r.networks.map(n => ({ ...n, names: [...new Set(Object.values(n.ssids || {}))], devs: s.devices.filter(d => d.online && d.domain === n.domain) }));
   const firstGuest = all.find(n => n.guest);

@@ -243,6 +243,8 @@ export function DeviceDrawer({ id, s, devHist, api, ui }) {
               <div>Signal</div><div><span className="row" style=${{ gap: '8px' }}><${Bars} d=${d} />${sig.word} <span className="muted tnum">(${d.signal} dBm)</span></span>
                 ${sig.level <= 2 ? html`<div className="muted" style=${{ fontSize: '13px', marginTop: '4px' }}>${d.band === '5' ? 'Move it closer to the router. 2.4 GHz reaches further through walls, if the device lets you pick.' : 'Move it closer to the router for a steadier connection.'}</div>` : null}
                 ${d.band === '2.4' ? html`<div className="muted" style=${{ fontSize: '13px', marginTop: '4px' }}>2.4 GHz reaches farther, so its signal is judged 6 dB more gently than 5 GHz.</div>` : null}</div><//>` : null}
+            ${d.ap && d.online ? html`<${Fragment}><div>Access point</div><div>${d.ap}</div><//>` : null}
+            ${d.port && d.online ? html`<${Fragment}><div>Switch port</div><div>${d.port}</div><//>` : null}
             ${d.online && (d.rate_down || d.rate_up) ? html`<${Fragment}><div>Link speed</div><div className="tnum">↓ ${Math.round(d.rate_down || 0)} · ↑ ${Math.round(d.rate_up || 0)} Mbps <span className="muted">right now</span></div><//>` : null}
             <div>${d.online ? 'Connected' : 'Last seen'}</div><div>${d.online ? (d.since ? `${fmtDur(s.now - d.since)} (since ${fmtClock(d.since)})` : 'Yes') : fmtAgo(d.last_seen || s.now, s.now)}</div>
           </div>

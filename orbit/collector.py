@@ -214,8 +214,11 @@ ROUTER_STATUS_EVERY = int(os.environ.get("ORBIT_ROUTER_STATUS_EVERY", "600"))
 
 
 class Collector:
-    def __init__(self, store, dish=starlink.DISH, router=starlink.ROUTER):
+    def __init__(self, store, dish=starlink.DISH, router=starlink.ROUTER, sources=None):
         self.store = store
+        # Another router or Wi-Fi controller (orbit/routers.py) supplies the device list instead of the Starlink
+        # router, for homes where the Starlink router is in bypass mode. The dish is still read as usual.
+        self.sources = sources
         # The fast loops and the slow loop each get their own connections, so a big history
         # download never delays the once-a-second reading.
         self.dish = Endpoint(dish)
@@ -341,6 +344,8 @@ class Collector:
         self._flush_devices()
         for e in (self.dish, self.router, self.dish_slow, self.router_slow):
             e.close()
+        if self.sources:
+            self.sources.close()
 
     # ---------- activity ----------
     @staticmethod
@@ -485,7 +490,8 @@ class Collector:
         while not self.stopping.is_set():
             t = time.time()
             try:
-                self._on_clients(self.router.read("wifi_get_clients").get("clients") or [], t)
+                clients = self.sources.poll(t) if self.sources else self.router.read("wifi_get_clients").get("clients") or []
+                self._on_clients(clients, t)
             except Exception:
                 self._on_router_error()
             if t - self._allowances_checked >= 10:
@@ -535,6 +541,8 @@ class Collector:
                 # A normal poll, not the first one after Orbit restarted or the device reconnected
                 steady = prev is not None and rx >= prev[0] and tx >= prev[1] and assoc + 5 >= prev[2]
                 down_mbps, up_mbps = self._speed(cid, down if steady else 0.0, up if steady else 0.0, t, fresh=not steady)
+                if c.get("live_mbps"):  # another router: its own speed between reads (orbit/routers.py)
+                    down_mbps, up_mbps = c["live_mbps"]
                 signal = None if wired else num(c.get("signal_strength"))
                 a = self.acc.setdefault(key, [0.0, 0.0, 0.0, 0.0, 0.0, 0])
                 a[0] += down
@@ -564,6 +572,7 @@ class Collector:
                          domain=c.get("domain") or None, signal=signal, snr=None if wired else num(c.get("snr")),
                          down_mbps=down_mbps, up_mbps=up_mbps, rate_down=num(g(c, "rx_stats.rate_mbps")),
                          rate_up=num(g(c, "tx_stats.rate_mbps")), width=num(c.get("channel_width")), offline_since=None,
+                         ap=c.get("ap_name"), wifi_name=c.get("ssid"), source=c.get("counter_source") or c.get("source"), port=c.get("port"),
                          since=(t - assoc) if assoc else (d.get("since") if was_online else t))
                 if not was_online and offline_since and t - offline_since > 300 and d not in joined:
                     came.append(d)
@@ -895,7 +904,7 @@ class Collector:
         if old["dns"]["secure"] != new["dns"]["secure"]:
             self.event("security", "shield-check" if new["dns"]["secure"] else "shield-x",
                        "Secure DNS was turned " + ("on" if new["dns"]["secure"] else "off"), tone="good" if new["dns"]["secure"] else "warn")
-        if new["bypass"] and not old["bypass"]:
+        if new["bypass"] and not old["bypass"] and not self.sources:
             self.event("network", "router", "Your router went into bypass mode", "Orbit can't see devices while another router handles your Wi-Fi.", tone="warn")
         if old_link:
             age, was = link.get("public_ip_age_s"), old_link.get("public_ip_age_s")
@@ -1360,7 +1369,8 @@ class Collector:
             "domain": d.get("domain"),
             "upper_band": iface == "RF_5GHZ_HIGH",
             "network": ("guest" if net.get("guest") else "main") if net else ("wired" if iface == "ETH" else None),
-            "ssid": (net or {}).get("ssids", {}).get(iface), "signal": d.get("signal"), "snr": d.get("snr"),
+            "ssid": (net or {}).get("ssids", {}).get(iface) or d.get("wifi_name"), "signal": d.get("signal"), "snr": d.get("snr"),
+            "ap": d.get("ap"), "source": d.get("source"), "port": d.get("port"),
             "down_mbps": d.get("down_mbps") or 0.0 if online else 0.0, "up_mbps": d.get("up_mbps") or 0.0 if online else 0.0,
             "rate_down": d.get("rate_down"), "rate_up": d.get("rate_up"), "width": d.get("width"),
             "today_down": today[0], "today_up": today[1], "is_new": not d.get("acknowledged"),
@@ -1422,6 +1432,7 @@ class Collector:
             },
             "router": {"reachable": rl.get("reachable"), "updated": ms(rl.get("updated")), **ri, "networks": nets,
                        "settings": rsettings, "link": rlink, "update": rupdate},
+            "sources": self.sources.out() if self.sources else None,
             "security": security, "plan_rev": plan_rev,
             "home": home, "points": points, "devices": devices, "people": people, "events": events,
             "speedtest": self._speedtest_out(), "tests": self.tests[:5],
